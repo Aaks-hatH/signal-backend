@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Dashboard · Signal Intake</title>
+<link rel="stylesheet" href="/public/css/admin.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">SIGNAL<span>INTAKE</span></h1>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="raw">Raw Submissions</button>
+      <button class="tab-btn" data-tab="analytics">Analytics</button>
+    </nav>
+    <form method="POST" action="/admin/logout" class="logout-form">
+      <button type="submit" class="logout-btn">Log out</button>
+    </form>
+  </header>
+
+  <main class="content">
+
+    <!-- ===== RAW SUBMISSIONS TAB ===== -->
+    <section id="tab-raw" class="tab-panel active">
+      <div class="filters">
+        <input type="text" id="f-search" placeholder="Search problem / ideal description…" />
+
+        <select id="f-category"><option value="">All categories</option></select>
+        <select id="f-severity"><option value="">All severities</option></select>
+        <select id="f-wouldUse"><option value="">All wouldUse</option></select>
+        <select id="f-wouldPay"><option value="">All wouldPay</option></select>
+
+        <label class="date-label">From <input type="date" id="f-dateFrom" /></label>
+        <label class="date-label">To <input type="date" id="f-dateTo" /></label>
+
+        <button id="f-apply">Apply</button>
+        <button id="f-clear" class="secondary">Clear</button>
+        <a id="export-btn" class="export-btn" href="#" target="_blank" rel="noopener">Export CSV</a>
+      </div>
+
+      <div class="table-wrap">
+        <table id="submissions-table">
+          <thead>
+            <tr>
+              <th data-sort="serverReceivedAt">Received ▾</th>
+              <th data-sort="name">Name</th>
+              <th>Email</th>
+              <th data-sort="category">Category</th>
+              <th data-sort="severity">Severity</th>
+              <th data-sort="rating">Rating</th>
+              <th data-sort="wouldUse">Would Use</th>
+              <th data-sort="wouldPay">Would Pay</th>
+              <th>Ref Code</th>
+            </tr>
+          </thead>
+          <tbody id="submissions-tbody">
+            <tr><td colspan="9" class="loading-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        <button id="prev-page" class="secondary">← Prev</button>
+        <span id="page-info">Page 1</span>
+        <button id="next-page" class="secondary">Next →</button>
+        <select id="page-size">
+          <option value="25">25 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="200">200 / page</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- ===== ANALYTICS TAB ===== -->
+    <section id="tab-analytics" class="tab-panel">
+      <div class="stat-cards" id="stat-cards"></div>
+
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>Submissions over time</h3>
+          <canvas id="chart-byDay"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>By category</h3>
+          <canvas id="chart-byCategory"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>By severity</h3>
+          <canvas id="chart-bySeverity"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>By frequency</h3>
+          <canvas id="chart-byFrequency"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Top frustration tags</h3>
+          <canvas id="chart-frustrationTags"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Top feature priorities</h3>
+          <canvas id="chart-featurePriorities"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Would use</h3>
+          <canvas id="chart-wouldUse"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Would pay</h3>
+          <canvas id="chart-wouldPay"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Price range</h3>
+          <canvas id="chart-priceRange"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== DETAIL MODAL ===== -->
+  <div id="detail-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <button id="modal-close" class="modal-close">&times;</button>
+      <h2>Submission detail</h2>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/public/js/dashboard.js"></script>
+</body>
+</html>

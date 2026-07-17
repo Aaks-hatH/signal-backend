@@ -1,0 +1,107 @@
+require('dotenv').config();
+
+const express = require('express');
+const path = require('path');
+const helmet = require('helmet');
+const cors = require('cors');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
+
+const { connectDB } = require('./src/db');
+const submitRouter = require('./src/routes/submit');
+const adminAuthRouter = require('./src/routes/adminAuth');
+const adminRouter = require('./src/routes/admin');
+
+const PORT = process.env.PORT || 3000;
+const isProd = process.env.NODE_ENV === 'production';
+
+async function main() {
+  await connectDB();
+
+  const app = express();
+
+  // Render/Railway/Fly all sit behind a reverse proxy — trust the first hop
+  // so req.ip and secure cookies behave correctly.
+  app.set('trust proxy', 1);
+
+  app.set('view engine', 'ejs');
+  app.set('views', path.join(__dirname, 'views'));
+
+  app.use(
+    helmet({
+      // Dashboard uses inline <script> for small bits of glue code and a
+      // CDN-hosted Chart.js; relax CSP just enough for that instead of
+      // disabling it entirely.
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+          'style-src': ["'self'", "'unsafe-inline'"],
+        },
+      },
+    })
+  );
+
+  app.use(express.json({ limit: '200kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+
+  // CORS: only the public submit endpoint needs to be reachable cross-origin
+  // from the survey's domain. The admin area is same-origin browser use only.
+  const allowedOrigin = process.env.ALLOWED_ORIGIN;
+  app.use(
+    '/api',
+    cors({
+      origin: allowedOrigin || false,
+      methods: ['POST'],
+    })
+  );
+
+  app.use(
+    session({
+      name: 'signal_intake_sid',
+      secret: process.env.SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      store: MongoStore.create({
+        client: require('mongoose').connection.getClient(),
+        collectionName: 'sessions',
+        ttl: 4 * 60 * 60, // 4 hours, matches cookie maxAge below
+      }),
+      cookie: {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        maxAge: 4 * 60 * 60 * 1000, // 4 hour idle expiry
+      },
+    })
+  );
+
+  app.use('/public', express.static(path.join(__dirname, 'public')));
+
+  app.get('/', (req, res) => {
+    res.type('text').send('Signal Intake backend is running.');
+  });
+
+  app.use('/api', submitRouter);
+  app.use('/admin', adminAuthRouter);
+  app.use('/admin', adminRouter);
+
+  app.use((req, res) => {
+    res.status(404).type('text').send('Not found.');
+  });
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    console.error('[unhandled]', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  });
+
+  app.listen(PORT, () => {
+    console.log(`[server] listening on port ${PORT} (${isProd ? 'production' : 'development'})`);
+  });
+}
+
+main().catch((err) => {
+  console.error('[startup] fatal error:', err);
+  process.exit(1);
+});
