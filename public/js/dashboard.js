@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  const FM = window.FieldMaps;
+
   // ---------- small helpers ----------
   function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -16,10 +18,18 @@
     if (!iso) return '';
     const d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    return d.toLocaleString();
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
   }
 
   function el(id) { return document.getElementById(id); }
+
+  function badge(text, tone) {
+    if (!text) return '<span class="na">\u2014</span>';
+    return `<span class="badge badge-${tone || 'neutral'}">${escapeHtml(text)}</span>`;
+  }
 
   // ---------- tabs ----------
   const tabButtons = document.querySelectorAll('.tab-btn');
@@ -73,7 +83,7 @@
   // ---------- table ----------
   async function loadSubmissions() {
     const tbody = el('submissions-tbody');
-    tbody.innerHTML = '<tr><td colspan="9" class="loading-row">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-row">Loading\u2026</td></tr>';
 
     try {
       const res = await fetch('/admin/api/submissions?' + buildQuery());
@@ -89,16 +99,22 @@
             item.severity && KNOWN_SEVERITIES.add(item.severity);
             item.wouldUse && KNOWN_WOULD_USE.add(item.wouldUse);
             item.wouldPay && KNOWN_WOULD_PAY.add(item.wouldPay);
+
+            const categoryText = FM.decodeShort('category', item.category);
+            const severityText = FM.decodeShort('severity', item.severity);
+            const wouldUseText = FM.decodeShort('wouldUse', item.wouldUse);
+            const wouldPayText = FM.decodeShort('wouldPay', item.wouldPay);
+
             return `<tr data-id="${escapeHtml(item._id)}">
               <td>${escapeHtml(fmtDate(item.serverReceivedAt))}</td>
-              <td>${escapeHtml(item.name || 'N/A')}</td>
-              <td>${escapeHtml(item.email || 'N/A')}</td>
-              <td>${escapeHtml(item.category || 'N/A')}</td>
-              <td>${escapeHtml(item.severity || 'N/A')}</td>
-              <td>${item.rating !== undefined && item.rating !== null ? escapeHtml(item.rating) : 'N/A'}</td>
-              <td>${escapeHtml(item.wouldUse || 'N/A')}</td>
-              <td>${escapeHtml(item.wouldPay || 'N/A')}</td>
-              <td>${escapeHtml(item.referenceCode)}</td>
+              <td>${escapeHtml(item.name || 'Anonymous')}</td>
+              <td>${item.email ? escapeHtml(item.email) : '<span class="na">\u2014</span>'}</td>
+              <td>${categoryText ? escapeHtml(categoryText) : '<span class="na">\u2014</span>'}</td>
+              <td>${badge(severityText, FM.tone('severity', item.severity))}</td>
+              <td>${item.rating !== undefined && item.rating !== null ? `<span class="rating-pip">${escapeHtml(item.rating)}/10</span>` : '<span class="na">\u2014</span>'}</td>
+              <td>${badge(wouldUseText, FM.tone('wouldUse', item.wouldUse))}</td>
+              <td>${badge(wouldPayText, FM.tone('wouldPay', item.wouldPay))}</td>
+              <td class="mono-cell">${escapeHtml(item.referenceCode)}</td>
             </tr>`;
           })
           .join('');
@@ -121,29 +137,93 @@
   }
 
   function refreshFilterOptions() {
-    fillSelectOnce('f-category', KNOWN_CATEGORIES);
-    fillSelectOnce('f-severity', KNOWN_SEVERITIES);
-    fillSelectOnce('f-wouldUse', KNOWN_WOULD_USE);
-    fillSelectOnce('f-wouldPay', KNOWN_WOULD_PAY);
+    fillSelectOnce('f-category', KNOWN_CATEGORIES, 'category');
+    fillSelectOnce('f-severity', KNOWN_SEVERITIES, 'severity');
+    fillSelectOnce('f-wouldUse', KNOWN_WOULD_USE, 'wouldUse');
+    fillSelectOnce('f-wouldPay', KNOWN_WOULD_PAY, 'wouldPay');
   }
 
-  function fillSelectOnce(selectId, valuesSet) {
+  function fillSelectOnce(selectId, valuesSet, fieldName) {
     const select = el(selectId);
     const existing = new Set(Array.from(select.options).map((o) => o.value));
     valuesSet.forEach((v) => {
       if (!existing.has(v)) {
         const opt = document.createElement('option');
         opt.value = v;
-        opt.textContent = v;
+        opt.textContent = (fieldName && FM.decodeShort(fieldName, v)) || v;
         select.appendChild(opt);
       }
     });
   }
 
+  // ---------- detail modal ----------
+
+  function sectionHtml(title, rowsHtml) {
+    if (!rowsHtml) return '';
+    return `<div class="detail-section">
+      <h3 class="detail-section-title">${escapeHtml(title)}</h3>
+      <div class="detail-grid">${rowsHtml}</div>
+    </div>`;
+  }
+
+  function row(label, valueHtml, opts) {
+    if (valueHtml === null || valueHtml === undefined || valueHtml === '') return '';
+    const wide = opts && opts.wide ? ' detail-row-wide' : '';
+    return `<div class="detail-row${wide}">
+      <div class="detail-label">${escapeHtml(label)}</div>
+      <div class="detail-value">${valueHtml}</div>
+    </div>`;
+  }
+
+  function textValue(v) {
+    if (v === null || v === undefined || v === '') return null;
+    return `<span>${escapeHtml(v)}</span>`;
+  }
+
+  function proseValue(v) {
+    if (v === null || v === undefined || v === '') return null;
+    return `<p class="prose">${escapeHtml(v)}</p>`;
+  }
+
+  function decodedValue(field, raw, extraOtherText) {
+    const decoded = FM.decode(field, raw);
+    if (decoded === null) return null;
+    const otherNote = extraOtherText ? ` <span class="detail-subtle">\u2014 "${escapeHtml(extraOtherText)}"</span>` : '';
+    return `<span>${escapeHtml(decoded)}${otherNote}</span>`;
+  }
+
+  function chipsValue(field, values) {
+    if (!Array.isArray(values) || !values.length) return null;
+    const decoded = FM.decodeList(field, values);
+    return `<div class="chip-row">${decoded.map((d) => `<span class="chip">${escapeHtml(d)}</span>`).join('')}</div>`;
+  }
+
+  function boolValue(v, trueLabel, falseLabel) {
+    if (v === undefined || v === null) return null;
+    return v
+      ? `<span class="badge badge-good">${escapeHtml(trueLabel || 'Yes')}</span>`
+      : `<span class="badge badge-neutral">${escapeHtml(falseLabel || 'No')}</span>`;
+  }
+
+  function ratingValue(v) {
+    if (v === undefined || v === null) return null;
+    const n = Number(v);
+    const pct = Math.max(0, Math.min(100, (n / 10) * 100));
+    return `<div class="rating-bar-wrap">
+      <div class="rating-bar"><div class="rating-bar-fill" style="width:${pct}%"></div></div>
+      <span class="rating-bar-label">${escapeHtml(v)} / 10</span>
+    </div>`;
+  }
+
+  function metaValue(v) {
+    if (v === null || v === undefined || v === '') return null;
+    return `<span class="detail-subtle">${escapeHtml(v)}</span>`;
+  }
+
   async function openDetail(id) {
     const modal = el('detail-modal');
     const body = el('modal-body');
-    body.innerHTML = 'Loading…';
+    body.innerHTML = '<div class="modal-loading">Loading\u2026</div>';
     modal.classList.remove('hidden');
 
     try {
@@ -151,27 +231,109 @@
       if (!res.ok) throw new Error('not found');
       const item = await res.json();
 
-      const rows = Object.entries(item)
-        .filter(([k]) => !['__v', 'rawJson'].includes(k))
-        .map(([k, v]) => {
-          let display;
-          if (v === null || v === undefined || v === '') display = 'N/A';
-          else if (Array.isArray(v)) display = v.join(', ') || 'N/A';
-          else if (typeof v === 'object') display = escapeHtml(JSON.stringify(v));
-          else display = escapeHtml(v);
-          return `<dt>${escapeHtml(k)}</dt><dd>${display}</dd>`;
-        })
+      const extra = item.extraFields && typeof item.extraFields === 'object' ? item.extraFields : {};
+
+      const header = `
+        <div class="detail-header">
+          <div>
+            <div class="detail-header-name">${escapeHtml(item.name || 'Anonymous respondent')}</div>
+            <div class="detail-header-sub">
+              ${item.email ? escapeHtml(item.email) + ' \u00b7 ' : ''}${escapeHtml(fmtDate(item.serverReceivedAt))}
+            </div>
+          </div>
+          <span class="ref-code-pill">${escapeHtml(item.referenceCode)}</span>
+        </div>`;
+
+      const respondentRows = [
+        row(FM.label('ageGroup'), decodedValue('ageGroup', item.ageGroup)),
+        row(FM.label('role'), decodedValue('role', item.role, extra.roleOther)),
+      ].join('');
+
+      const problemRows = [
+        row(FM.label('category'), decodedValue('category', item.category, extra.categoryOther)),
+        row(FM.label('problemDescription'), proseValue(item.problemDescription), { wide: true }),
+        row(FM.label('severity'), badge(FM.decode('severity', item.severity), FM.tone('severity', item.severity))),
+        row(FM.label('frequency'), decodedValue('frequency', item.frequency)),
+        row(FM.label('timeCost'), decodedValue('timeCost', item.timeCost)),
+        row(FM.label('currentSolution'), decodedValue('currentSolution', item.currentSolution)),
+        row(FM.label('rating'), ratingValue(item.rating)),
+        row(FM.label('whyStopped'), decodedValue('whyStopped', item.whyStopped)),
+        row(FM.label('triedAlternatives'), proseValue(item.triedAlternatives), { wide: true }),
+        row(FM.label('frustrationTags'), chipsValue('frustrationTags', item.frustrationTags), { wide: true }),
+        row(FM.label('frustrationText'), proseValue(item.frustrationText), { wide: true }),
+      ].join('');
+
+      const idealRows = [
+        row(FM.label('idealDescription'), proseValue(item.idealDescription), { wide: true }),
+        row(FM.label('mustHave'), textValue(item.mustHave)),
+        row(FM.label('platformPref'), decodedValue('platformPref', item.platformPref)),
+        row(FM.label('featurePriorities'), chipsValue('featurePriorities', item.featurePriorities), { wide: true }),
+      ].join('');
+
+      const buyingRows = [
+        row(FM.label('wouldUse'), badge(FM.decode('wouldUse', item.wouldUse), FM.tone('wouldUse', item.wouldUse))),
+        row(FM.label('wouldPay'), badge(FM.decode('wouldPay', item.wouldPay), FM.tone('wouldPay', item.wouldPay))),
+        row(FM.label('priceRange'), decodedValue('priceRange', item.priceRange)),
+        row(FM.label('urgency'), decodedValue('urgency', item.urgency)),
+      ].join('');
+
+      const contactRows = [
+        row(FM.label('consent'), boolValue(item.consent, 'Consented', 'Not given')),
+        row(FM.label('openToContact'), boolValue(item.openToContact, 'Open to contact', 'Not opted in')),
+        row(FM.label('betaInterest'), boolValue(item.betaInterest, 'Wants beta access', 'Not interested')),
+        row(FM.label('contactMethod'), decodedValue('contactMethod', item.contactMethod)),
+        row(FM.label('contactValue'), textValue(item.contactValue)),
+        row(FM.label('bestTime'), textValue(item.bestTime)),
+      ].join('');
+
+      const extraEntries = Object.entries(extra).filter(([k]) => k !== 'roleOther' && k !== 'categoryOther');
+      const extraRows = extraEntries
+        .map(([k, v]) => row(humanizeUnknownKey(k), textValue(Array.isArray(v) ? v.join(', ') : v)))
         .join('');
 
-      body.innerHTML = `<dl>${rows}</dl>`;
+      const metaRows = [
+        row(FM.label('clientSubmittedAt'), metaValue(item.clientSubmittedAt)),
+        row(FM.label('serverReceivedAt'), metaValue(fmtDate(item.serverReceivedAt))),
+        row(FM.label('browser'), metaValue(item.parsedUA && item.parsedUA.browser)),
+        row(FM.label('os'), metaValue(item.parsedUA && item.parsedUA.os)),
+        row(FM.label('device'), metaValue(item.parsedUA && item.parsedUA.device)),
+        row(FM.label('ip'), metaValue(item.ip)),
+      ].join('');
+
+      body.innerHTML = header
+        + sectionHtml('Respondent', respondentRows)
+        + sectionHtml('The problem', problemRows)
+        + sectionHtml('Their ideal solution', idealRows)
+        + sectionHtml('Buying signal', buyingRows)
+        + sectionHtml('Consent & follow-up', contactRows)
+        + sectionHtml('Other answers on the form', extraRows)
+        + sectionHtml('Submission metadata', metaRows)
+        + rawJsonToggle(item);
     } catch (err) {
-      body.innerHTML = 'Failed to load submission detail.';
+      body.innerHTML = '<div class="modal-loading">Failed to load submission detail.</div>';
+      console.error(err);
     }
+  }
+
+  function humanizeUnknownKey(key) {
+    const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+
+  function rawJsonToggle(item) {
+    const pretty = escapeHtml(JSON.stringify(item.rawJson !== undefined ? item.rawJson : item, null, 2));
+    return `<details class="raw-json-details">
+      <summary>Raw submitted JSON (for debugging)</summary>
+      <pre class="raw-json">${pretty}</pre>
+    </details>`;
   }
 
   el('modal-close').addEventListener('click', () => el('detail-modal').classList.add('hidden'));
   el('detail-modal').addEventListener('click', (e) => {
     if (e.target === el('detail-modal')) el('detail-modal').classList.add('hidden');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') el('detail-modal').classList.add('hidden');
   });
 
   // ---------- filters ----------
@@ -201,12 +363,14 @@
   document.querySelectorAll('#submissions-table thead th[data-sort]').forEach((th) => {
     th.addEventListener('click', () => {
       const field = th.dataset.sort;
+      document.querySelectorAll('#submissions-table thead th[data-sort]').forEach((t) => t.classList.remove('sort-asc', 'sort-desc'));
       if (state.sortField === field) {
         state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
       } else {
         state.sortField = field;
         state.sortDir = 'desc';
       }
+      th.classList.add(state.sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
       loadSubmissions();
     });
   });
@@ -240,18 +404,26 @@
       `;
 
       renderLineChart('chart-byDay', data.byDay.map((d) => d.date), data.byDay.map((d) => d.count));
-      renderBarChart('chart-byCategory', data.byCategory);
-      renderBarChart('chart-bySeverity', data.bySeverity);
-      renderBarChart('chart-byFrequency', data.byFrequency);
-      renderBarChart('chart-frustrationTags', data.topFrustrationTags);
-      renderBarChart('chart-featurePriorities', data.topFeaturePriorities);
-      renderBarChart('chart-wouldUse', data.wouldUseFunnel);
-      renderBarChart('chart-wouldPay', data.wouldPayFunnel);
-      renderBarChart('chart-priceRange', data.priceRangeBreakdown);
+      renderBarChart('chart-byCategory', decorateEntries('category', data.byCategory));
+      renderBarChart('chart-bySeverity', decorateEntries('severity', data.bySeverity));
+      renderBarChart('chart-byFrequency', decorateEntries('frequency', data.byFrequency));
+      renderBarChart('chart-frustrationTags', decorateEntries('frustrationTags', data.topFrustrationTags));
+      renderBarChart('chart-featurePriorities', decorateEntries('featurePriorities', data.topFeaturePriorities));
+      renderBarChart('chart-wouldUse', decorateEntries('wouldUse', data.wouldUseFunnel));
+      renderBarChart('chart-wouldPay', decorateEntries('wouldPay', data.wouldPayFunnel));
+      renderBarChart('chart-priceRange', decorateEntries('priceRange', data.priceRangeBreakdown));
     } catch (err) {
       el('stat-cards').innerHTML = '<div class="stat-card">Failed to load analytics.</div>';
       console.error(err);
     }
+  }
+
+  // Swap raw codes for human labels on chart axes, leaving "unspecified" alone.
+  function decorateEntries(field, entries) {
+    return entries.map((e) => ({
+      label: e.label === 'unspecified' ? 'Unspecified' : (FM.decodeShort(field, e.label) || e.label),
+      count: e.count,
+    }));
   }
 
   function chartColors() {
