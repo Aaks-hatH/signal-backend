@@ -17,7 +17,9 @@ const submitLimiter = rateLimit({
 });
 
 function getClientIp(req) {
-  // req.ip already respects `app.set('trust proxy', ...)` if configured.
+  // With `trust proxy` set to true, Express walks the X-Forwarded-For
+  // chain and returns the left-most address (the original client) as
+  // req.ip, rather than an internal proxy hop.
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
