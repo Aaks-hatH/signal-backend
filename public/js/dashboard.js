@@ -42,6 +42,9 @@
       if (btn.dataset.tab === 'analytics' && !analyticsLoaded) {
         loadAnalytics();
       }
+      if (btn.dataset.tab === 'traffic' && !trafficLoaded) {
+        loadTraffic();
+      }
     });
   });
 
@@ -54,6 +57,7 @@
     filters: {},
   };
   let analyticsLoaded = false;
+  let trafficLoaded = false;
   const charts = {};
 
   const KNOWN_CATEGORIES = new Set();
@@ -111,7 +115,7 @@
               <td>${item.email ? escapeHtml(item.email) : '<span class="na">\u2014</span>'}</td>
               <td>${categoryText ? escapeHtml(categoryText) : '<span class="na">\u2014</span>'}</td>
               <td>${badge(severityText, FM.tone('severity', item.severity))}</td>
-              <td>${item.rating !== undefined && item.rating !== null ? `<span class="rating-pip">${escapeHtml(item.rating)}/10</span>` : '<span class="na">\u2014</span>'}</td>
+              <td>${item.rating !== undefined && item.rating !== null ? `<span class="rating-pip">${escapeHtml(item.rating)}/5</span>` : '<span class="na">\u2014</span>'}</td>
               <td>${badge(wouldUseText, FM.tone('wouldUse', item.wouldUse))}</td>
               <td>${badge(wouldPayText, FM.tone('wouldPay', item.wouldPay))}</td>
               <td class="mono-cell">${escapeHtml(item.referenceCode)}</td>
@@ -208,10 +212,10 @@
   function ratingValue(v) {
     if (v === undefined || v === null) return null;
     const n = Number(v);
-    const pct = Math.max(0, Math.min(100, (n / 10) * 100));
+    const pct = Math.max(0, Math.min(100, (n / 5) * 100));
     return `<div class="rating-bar-wrap">
       <div class="rating-bar"><div class="rating-bar-fill" style="width:${pct}%"></div></div>
-      <span class="rating-bar-label">${escapeHtml(v)} / 10</span>
+      <span class="rating-bar-label">${escapeHtml(v)} / 5</span>
     </div>`;
   }
 
@@ -414,6 +418,44 @@
       renderBarChart('chart-priceRange', decorateEntries('priceRange', data.priceRangeBreakdown));
     } catch (err) {
       el('stat-cards').innerHTML = '<div class="stat-card">Failed to load analytics.</div>';
+      console.error(err);
+    }
+  }
+
+  async function loadTraffic() {
+    try {
+      const res = await fetch('/admin/api/traffic');
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      trafficLoaded = true;
+
+      el('traffic-stat-cards').innerHTML = `
+        <div class="stat-card"><div class="value">${data.totalPageViews}</div><div class="label">Total page views</div></div>
+        <div class="stat-card"><div class="value">${data.uniqueIpCount}</div><div class="label">Unique IP addresses</div></div>
+        <div class="stat-card"><div class="value">${data.totalSubmissions}</div><div class="label">Total submissions</div></div>
+        <div class="stat-card"><div class="value">${data.conversionRatePct}%</div><div class="label">View → submission rate</div></div>
+      `;
+
+      renderLineChart('chart-viewsByDay', data.viewsByDay.map((d) => d.date), data.viewsByDay.map((d) => d.count));
+
+      const tbody = el('traffic-tbody');
+      if (!data.topIps.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No page views recorded yet.</td></tr>';
+      } else {
+        tbody.innerHTML = data.topIps
+          .map((row) => `<tr>
+            <td class="mono-cell">${escapeHtml(row.ip)}</td>
+            <td>${escapeHtml(row.views)}</td>
+            <td>${row.submissions ? badge(row.submissions + (row.submissions === 1 ? ' submission' : ' submissions'), 'good') : '<span class="na">\u2014</span>'}</td>
+            <td class="detail-subtle">${escapeHtml(row.browser)} \u00b7 ${escapeHtml(row.os)}</td>
+            <td>${escapeHtml(fmtDate(row.firstSeen))}</td>
+            <td>${escapeHtml(fmtDate(row.lastSeen))}</td>
+          </tr>`)
+          .join('');
+      }
+    } catch (err) {
+      el('traffic-stat-cards').innerHTML = '<div class="stat-card">Failed to load traffic data.</div>';
+      el('traffic-tbody').innerHTML = '<tr><td colspan="6" class="empty-row">Failed to load.</td></tr>';
       console.error(err);
     }
   }
