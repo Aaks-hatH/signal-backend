@@ -9,6 +9,7 @@ const MongoStore = require('connect-mongo');
 
 const { connectDB } = require('./src/db');
 const submitRouter = require('./src/routes/submit');
+const trackRouter = require('./src/routes/track');
 const adminAuthRouter = require('./src/routes/adminAuth');
 const adminRouter = require('./src/routes/admin');
 
@@ -47,7 +48,20 @@ async function main() {
   app.use(express.json({ limit: '200kb' }));
   app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 
-  // CORS: only the public submit endpoint needs to be reachable cross-origin
+  // Every request gets one line in stdout when it finishes — this is what
+  // shows up in Render's Logs tab in real time. Kept intentionally plain
+  // (method, path, status, timing, ip) rather than pulling in a logging
+  // dependency for something this small.
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      const ms = Date.now() - startedAt;
+      console.log(`[http] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms) ip=${req.ip}`);
+    });
+    next();
+  });
+
+  // CORS: only the public submit/track endpoints need to be reachable cross-origin
   // from the survey's domain. The admin area is same-origin browser use only.
   const allowedOrigin = process.env.ALLOWED_ORIGIN;
   app.use(
@@ -85,6 +99,7 @@ async function main() {
   });
 
   app.use('/api', submitRouter);
+  app.use('/api', trackRouter);
   app.use('/admin', adminAuthRouter);
   app.use('/admin', adminRouter);
 
