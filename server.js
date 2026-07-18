@@ -20,9 +20,11 @@ async function main() {
 
   const app = express();
 
-  // Render/Railway/Fly all sit behind a reverse proxy — trust the first hop
-  // so req.ip and secure cookies behave correctly.
-  app.set('trust proxy', 1);
+  // Render/Railway/Fly put the app behind more than one proxy hop, so
+  // trusting only "1" hop lands on an internal/private hop's address
+  // instead of the real client IP. Trust the whole chain and take the
+  // left-most (original client) address from X-Forwarded-For.
+  app.set('trust proxy', true);
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
