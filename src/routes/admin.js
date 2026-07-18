@@ -1,5 +1,6 @@
 const express = require('express');
 const Submission = require('../models/Submission');
+const PageView = require('../models/PageView');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { buildFilter } = require('../utils/buildFilter');
 const { submissionsToCsv } = require('../utils/toCsv');
@@ -183,6 +184,77 @@ router.get('/api/analytics', async (req, res) => {
   } catch (err) {
     console.error('[admin/api/analytics] error:', err);
     res.status(500).json({ error: 'Failed to load analytics.' });
+  }
+});
+
+// GET /admin/api/traffic — page-view / IP analytics, cross-referenced with
+// submission counts per IP so you can see how visits convert.
+router.get('/api/traffic', async (req, res) => {
+  try {
+    const [
+      totalPageViews,
+      uniqueIps,
+      totalSubmissions,
+      viewsByDay,
+      submissionsByIp,
+      topIpsRaw,
+    ] = await Promise.all([
+      PageView.countDocuments({}),
+      PageView.distinct('ip'),
+      Submission.countDocuments({}),
+      PageView.aggregate([
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+      Submission.aggregate([
+        { $match: { ip: { $exists: true, $ne: '' } } },
+        { $group: { _id: '$ip', count: { $sum: 1 } } },
+      ]),
+      PageView.aggregate([
+        { $sort: { createdAt: -1 } },
+        {
+          $group: {
+            _id: '$ip',
+            views: { $sum: 1 },
+            lastSeen: { $first: '$createdAt' },
+            firstSeen: { $last: '$createdAt' },
+            lastBrowser: { $first: '$parsedUA.browser' },
+            lastOs: { $first: '$parsedUA.os' },
+          },
+        },
+        { $sort: { views: -1 } },
+        { $limit: 50 },
+      ]),
+    ]);
+
+    const submissionCountByIp = new Map(submissionsByIp.map((d) => [d._id, d.count]));
+
+    const topIps = topIpsRaw.map((d) => ({
+      ip: d._id || 'unknown',
+      views: d.views,
+      submissions: submissionCountByIp.get(d._id) || 0,
+      browser: d.lastBrowser || 'unknown',
+      os: d.lastOs || 'unknown',
+      firstSeen: d.firstSeen,
+      lastSeen: d.lastSeen,
+    }));
+
+    res.json({
+      totalPageViews,
+      uniqueIpCount: uniqueIps.length,
+      totalSubmissions,
+      conversionRatePct: totalPageViews ? Math.round((totalSubmissions / totalPageViews) * 1000) / 10 : 0,
+      viewsByDay: viewsByDay.map((d) => ({ date: d._id, count: d.count })),
+      topIps,
+    });
+  } catch (err) {
+    console.error('[admin/api/traffic] error:', err);
+    res.status(500).json({ error: 'Failed to load traffic data.' });
   }
 });
 
