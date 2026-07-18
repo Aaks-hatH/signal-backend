@@ -13,6 +13,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="raw">Raw Submissions</button>
       <button class="tab-btn" data-tab="analytics">Analytics</button>
+      <button class="tab-btn" data-tab="traffic">Traffic &amp; IPs</button>
     </nav>
     <form method="POST" action="/admin/logout" class="logout-form">
       <button type="submit" class="logout-btn">Log out</button>
@@ -115,6 +116,37 @@
           <h3>Price range</h3>
           <canvas id="chart-priceRange"></canvas>
         </div>
+      </div>
+    </section>
+
+    <!-- ===== TRAFFIC & IP TAB ===== -->
+    <section id="tab-traffic" class="tab-panel">
+      <p class="tab-panel-heading">Every page load and submission is logged with its IP address here, and mirrored as a single log line in Render's Logs tab (look for <code>[pageview]</code> and <code>[submit]</code>).</p>
+      <div class="stat-cards" id="traffic-stat-cards"></div>
+
+      <div class="chart-grid">
+        <div class="chart-card chart-card-wide">
+          <h3>Page views over time</h3>
+          <canvas id="chart-viewsByDay"></canvas>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="traffic-table">
+          <thead>
+            <tr>
+              <th>IP address</th>
+              <th>Page views</th>
+              <th>Submissions</th>
+              <th>Browser / OS</th>
+              <th>First seen</th>
+              <th>Last seen</th>
+            </tr>
+          </thead>
+          <tbody id="traffic-tbody">
+            <tr><td colspan="6" class="loading-row">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </main>
