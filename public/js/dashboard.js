@@ -91,13 +91,13 @@
             item.wouldPay && KNOWN_WOULD_PAY.add(item.wouldPay);
             return `<tr data-id="${escapeHtml(item._id)}">
               <td>${escapeHtml(fmtDate(item.serverReceivedAt))}</td>
-              <td>${escapeHtml(item.name || '—')}</td>
-              <td>${escapeHtml(item.email || '—')}</td>
-              <td>${escapeHtml(item.category || '—')}</td>
-              <td>${escapeHtml(item.severity || '—')}</td>
-              <td>${item.rating !== undefined && item.rating !== null ? escapeHtml(item.rating) : '—'}</td>
-              <td>${escapeHtml(item.wouldUse || '—')}</td>
-              <td>${escapeHtml(item.wouldPay || '—')}</td>
+              <td>${escapeHtml(item.name || 'N/A')}</td>
+              <td>${escapeHtml(item.email || 'N/A')}</td>
+              <td>${escapeHtml(item.category || 'N/A')}</td>
+              <td>${escapeHtml(item.severity || 'N/A')}</td>
+              <td>${item.rating !== undefined && item.rating !== null ? escapeHtml(item.rating) : 'N/A'}</td>
+              <td>${escapeHtml(item.wouldUse || 'N/A')}</td>
+              <td>${escapeHtml(item.wouldPay || 'N/A')}</td>
               <td>${escapeHtml(item.referenceCode)}</td>
             </tr>`;
           })
@@ -155,8 +155,8 @@
         .filter(([k]) => !['__v', 'rawJson'].includes(k))
         .map(([k, v]) => {
           let display;
-          if (v === null || v === undefined || v === '') display = '—';
-          else if (Array.isArray(v)) display = v.join(', ') || '—';
+          if (v === null || v === undefined || v === '') display = 'N/A';
+          else if (Array.isArray(v)) display = v.join(', ') || 'N/A';
           else if (typeof v === 'object') display = escapeHtml(JSON.stringify(v));
           else display = escapeHtml(v);
           return `<dt>${escapeHtml(k)}</dt><dd>${display}</dd>`;
@@ -234,7 +234,7 @@
 
       el('stat-cards').innerHTML = `
         <div class="stat-card"><div class="value">${data.totalCount}</div><div class="label">Total submissions</div></div>
-        <div class="stat-card"><div class="value">${data.avgRating !== null ? data.avgRating : '—'}</div><div class="label">Avg current-solution rating (n=${data.avgRatingSampleSize})</div></div>
+        <div class="stat-card"><div class="value">${data.avgRating !== null ? data.avgRating : 'N/A'}</div><div class="label">Avg current-solution rating (n=${data.avgRatingSampleSize})</div></div>
         <div class="stat-card"><div class="value">${data.contactOptInPct}%</div><div class="label">Opted into contact (${data.contactOptInCount})</div></div>
         <div class="stat-card"><div class="value">${data.betaOptInPct}%</div><div class="label">Beta interest (${data.betaOptInCount})</div></div>
       `;
@@ -256,9 +256,9 @@
 
   function chartColors() {
     return {
-      cyan: '#22d3ee',
-      grid: 'rgba(255,255,255,0.06)',
-      text: '#8b96a8',
+      cyan: '#ff6a3d',
+      grid: 'rgba(237,232,214,0.06)',
+      text: '#93998d',
     };
   }
 
@@ -276,7 +276,7 @@
         datasets: [{
           data: values,
           borderColor: c.cyan,
-          backgroundColor: 'rgba(34,211,238,0.15)',
+          backgroundColor: 'rgba(255,106,61,0.15)',
           tension: 0.25,
           fill: true,
           pointRadius: 2,
