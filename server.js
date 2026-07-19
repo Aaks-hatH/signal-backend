@@ -4,12 +4,15 @@ const express = require('express');
 const path = require('path');
 const helmet = require('helmet');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 
 const { connectDB } = require('./src/db');
 const submitRouter = require('./src/routes/submit');
 const trackRouter = require('./src/routes/track');
+const eventsRouter = require('./src/routes/events');
+const replayRouter = require('./src/routes/replay');
 const adminAuthRouter = require('./src/routes/adminAuth');
 const adminRouter = require('./src/routes/admin');
 
@@ -45,8 +48,14 @@ async function main() {
     })
   );
 
+  // rrweb replay batches are much bigger than form/tracking payloads, so
+  // this route gets its own limit, mounted BEFORE the general 200kb
+  // parser below (Express only runs the first body parser that matches).
+  app.use('/api/replay', express.json({ limit: '3mb' }));
+
   app.use(express.json({ limit: '200kb' }));
   app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+  app.use(cookieParser());
 
   // Every request gets one line in stdout when it finishes — this is what
   // shows up in Render's Logs tab in real time. Kept intentionally plain
@@ -69,6 +78,7 @@ async function main() {
     cors({
       origin: allowedOrigin || false,
       methods: ['POST'],
+      credentials: true,
     })
   );
 
@@ -100,6 +110,8 @@ async function main() {
 
   app.use('/api', submitRouter);
   app.use('/api', trackRouter);
+  app.use('/api', eventsRouter);
+  app.use('/api', replayRouter);
   app.use('/admin', adminAuthRouter);
   app.use('/admin', adminRouter);
 

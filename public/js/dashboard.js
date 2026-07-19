@@ -45,6 +45,10 @@
       if (btn.dataset.tab === 'traffic' && !trafficLoaded) {
         loadTraffic();
       }
+      if (btn.dataset.tab === 'sessions' && !sessionsLoaded) {
+        loadLlmSettings();
+        loadSessions();
+      }
     });
   });
 
@@ -58,6 +62,8 @@
   };
   let analyticsLoaded = false;
   let trafficLoaded = false;
+  let sessionsLoaded = false;
+  let sessionsState = { page: 1, pageSize: 25, filters: {} };
   const charts = {};
 
   const KNOWN_CATEGORIES = new Set();
@@ -528,6 +534,221 @@
       },
     };
   }
+
+  // ---------- sessions & replay ----------
+  async function loadSessions() {
+    const tbody = el('sessions-tbody');
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-row">Loading\u2026</td></tr>';
+    try {
+      const params = new URLSearchParams();
+      params.set('page', sessionsState.page);
+      params.set('pageSize', sessionsState.pageSize);
+      Object.entries(sessionsState.filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+
+      const res = await fetch(`/admin/api/sessions?${params.toString()}`);
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      sessionsLoaded = true;
+
+      el('s-page-info').textContent = `Page ${data.page} of ${data.totalPages} (${data.total} sessions)`;
+
+      if (!data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-row">No sessions recorded yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.items.map((s) => {
+        const identity = s.submissionId
+          ? badge((s.submissionId.name || s.submissionId.email || s.submissionId.referenceCode), 'good')
+          : '<span class="na">Anonymous</span>';
+        const replay = s.replayEnabled
+          ? badge(`${s.replayChunkCount} chunk${s.replayChunkCount === 1 ? '' : 's'}`, 'good')
+          : '<span class="na">\u2014</span>';
+        return `<tr data-session-id="${escapeHtml(s.sessionId)}">
+          <td>${escapeHtml(fmtDate(s.lastSeenAt))}</td>
+          <td>${escapeHtml(fmtDate(s.firstSeenAt))}</td>
+          <td class="mono-cell">${escapeHtml(s.landingPath || '/')}</td>
+          <td>${escapeHtml(s.pageViewCount || 0)}</td>
+          <td>${s.rageClickCount ? badge(s.rageClickCount, 'warn') : '0'}</td>
+          <td>${escapeHtml(s.maxScrollDepthPct || 0)}%</td>
+          <td>${replay}</td>
+          <td>${identity}</td>
+          <td class="detail-subtle">${escapeHtml((s.parsedUA && s.parsedUA.browser) || 'unknown')} \u00b7 ${escapeHtml((s.parsedUA && s.parsedUA.device) || '')}</td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('tr[data-session-id]').forEach((tr) => {
+        tr.addEventListener('click', () => openSessionDetail(tr.dataset.sessionId));
+      });
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-row">Failed to load sessions.</td></tr>';
+      console.error(err);
+    }
+  }
+
+  el('s-apply').addEventListener('click', () => {
+    sessionsState.filters = {
+      hasReplay: el('s-hasReplay').value,
+      identified: el('s-identified').value,
+    };
+    sessionsState.page = 1;
+    loadSessions();
+  });
+  el('s-prev-page').addEventListener('click', () => {
+    if (sessionsState.page > 1) { sessionsState.page -= 1; loadSessions(); }
+  });
+  el('s-next-page').addEventListener('click', () => {
+    sessionsState.page += 1; loadSessions();
+  });
+
+  let activeRrwebPlayer = null;
+  let activeSessionId = null;
+
+  async function openSessionDetail(sessionId) {
+    activeSessionId = sessionId;
+    const modal = el('session-modal');
+    modal.classList.remove('hidden');
+    el('session-stats').innerHTML = 'Loading\u2026';
+    el('session-event-timeline').innerHTML = '';
+    el('llm-summary-output').innerHTML = '';
+    el('replay-player-target').innerHTML = '<p style="opacity:0.7; font-size:13px;">Loading\u2026</p>';
+
+    try {
+      const res = await fetch(`/admin/api/sessions/${encodeURIComponent(sessionId)}`);
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      renderSessionStats(data.session);
+      renderEventTimeline(data.events, data.pageViews);
+      if (data.session.llmSummary && data.session.llmSummary.text) {
+        el('llm-summary-output').innerHTML =
+          `<div class="detail-subtle">Generated ${escapeHtml(fmtDate(data.session.llmSummary.generatedAt))} \u00b7 ${escapeHtml(data.session.llmSummary.model)}</div>
+           <p>${escapeHtml(data.session.llmSummary.text)}</p>`;
+      }
+      el('llm-summarize-btn').disabled = !data.llmEnabled;
+      el('llm-summarize-btn').title = data.llmEnabled ? '' : 'Enable the summarizer above first.';
+
+      if (data.replayChunks && data.replayChunks.length) {
+        loadReplay(sessionId);
+      } else {
+        el('replay-player-target').innerHTML = '<p style="opacity:0.7; font-size:13px;">No replay recorded for this session (visitor didn\'t accept the notice, or there\'s nothing to replay yet).</p>';
+      }
+    } catch (err) {
+      el('session-stats').innerHTML = 'Failed to load session.';
+      console.error(err);
+    }
+  }
+
+  function renderSessionStats(s) {
+    el('session-stats').innerHTML = `
+      <div class="stat-cards">
+        <div class="stat-card"><div class="value">${escapeHtml(s.pageViewCount || 0)}</div><div class="label">Page views</div></div>
+        <div class="stat-card"><div class="value">${escapeHtml(s.eventCount || 0)}</div><div class="label">Behavioral events</div></div>
+        <div class="stat-card"><div class="value">${escapeHtml(s.rageClickCount || 0)}</div><div class="label">Rage clicks</div></div>
+        <div class="stat-card"><div class="value">${escapeHtml(s.deadClickCount || 0)}</div><div class="label">Dead clicks</div></div>
+        <div class="stat-card"><div class="value">${escapeHtml(s.maxScrollDepthPct || 0)}%</div><div class="label">Max scroll depth</div></div>
+      </div>`;
+  }
+
+  function renderEventTimeline(events, pageViews) {
+    const merged = [
+      ...(pageViews || []).map((p) => ({ t: p.createdAt, label: `pageview \u2192 ${p.path}` })),
+      ...(events || []).map((e) => ({ t: e.createdAt, label: `${e.type} ${JSON.stringify(e.detail || {})}` })),
+    ].sort((a, b) => new Date(a.t) - new Date(b.t));
+
+    if (!merged.length) {
+      el('session-event-timeline').innerHTML = '<p style="opacity:0.7;">No events recorded.</p>';
+      return;
+    }
+    el('session-event-timeline').innerHTML = merged
+      .map((e) => `<div>${escapeHtml(fmtDate(e.t))} \u2014 ${escapeHtml(e.label)}</div>`)
+      .join('');
+  }
+
+  async function loadReplay(sessionId) {
+    const target = el('replay-player-target');
+    target.innerHTML = '<p style="opacity:0.7; font-size:13px;">Loading replay\u2026</p>';
+    try {
+      const res = await fetch(`/admin/api/sessions/${encodeURIComponent(sessionId)}/replay`);
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      if (!data.events || data.events.length < 2) {
+        target.innerHTML = '<p style="opacity:0.7; font-size:13px;">Not enough replay data yet.</p>';
+        return;
+      }
+      target.innerHTML = '';
+      if (activeRrwebPlayer && typeof activeRrwebPlayer.$destroy === 'function') {
+        activeRrwebPlayer.$destroy();
+      }
+      // rrweb-player global export is `rrwebPlayer`
+      activeRrwebPlayer = new window.rrwebPlayer({
+        target,
+        props: { events: data.events, width: 820, height: 460, autoPlay: false },
+      });
+    } catch (err) {
+      target.innerHTML = '<p style="opacity:0.7; font-size:13px;">Failed to load replay.</p>';
+      console.error(err);
+    }
+  }
+
+  el('session-modal-close').addEventListener('click', () => el('session-modal').classList.add('hidden'));
+  el('session-modal').addEventListener('click', (e) => {
+    if (e.target === el('session-modal')) el('session-modal').classList.add('hidden');
+  });
+
+  el('llm-summarize-btn').addEventListener('click', async () => {
+    if (!activeSessionId) return;
+    const btn = el('llm-summarize-btn');
+    btn.disabled = true;
+    const out = el('llm-summary-output');
+    out.innerHTML = 'Generating\u2026';
+    try {
+      const res = await fetch(`/admin/api/sessions/${encodeURIComponent(activeSessionId)}/summarize`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'failed');
+      out.innerHTML = `<div class="detail-subtle">Generated just now \u00b7 ${escapeHtml(data.summary.model)}</div><p>${escapeHtml(data.summary.text)}</p>`;
+    } catch (err) {
+      out.innerHTML = `<p style="color:#ff6a3d;">${escapeHtml(err.message || 'Failed to generate summary.')}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- LLM settings (optional summarizer) ----------
+  async function loadLlmSettings() {
+    try {
+      const res = await fetch('/admin/api/settings/llm');
+      const data = await res.json();
+      el('llm-enabled-toggle').checked = !!data.enabled;
+      el('llm-provider-select').value = data.provider || 'ollama';
+      el('llm-system-prompt').value = data.systemPrompt || '';
+      el('llm-system-prompt').placeholder = data.defaultSystemPrompt || '';
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  el('llm-settings-save').addEventListener('click', async () => {
+    const status = el('llm-settings-status');
+    status.textContent = 'Saving\u2026';
+    try {
+      const res = await fetch('/admin/api/settings/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: el('llm-enabled-toggle').checked,
+          provider: el('llm-provider-select').value,
+          systemPrompt: el('llm-system-prompt').value,
+        }),
+      });
+      const data = await res.json();
+      status.textContent = data.enabled
+        ? `Saved \u2014 enabled (${data.provider}). Resets to off on server restart unless LLM_ENABLED=true is set in env.`
+        : 'Saved \u2014 disabled.';
+    } catch (err) {
+      status.textContent = 'Failed to save.';
+      console.error(err);
+    }
+  });
 
   // ---------- init ----------
   loadSubmissions();

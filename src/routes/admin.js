@@ -1,9 +1,13 @@
 const express = require('express');
 const Submission = require('../models/Submission');
 const PageView = require('../models/PageView');
+const Session = require('../models/Session');
+const Event = require('../models/Event');
+const ReplayChunk = require('../models/ReplayChunk');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { buildFilter } = require('../utils/buildFilter');
 const { submissionsToCsv } = require('../utils/toCsv');
+const llmSummary = require('../services/llmSummary');
 
 const router = express.Router();
 
@@ -256,6 +260,131 @@ router.get('/api/traffic', async (req, res) => {
     console.error('[admin/api/traffic] error:', err);
     res.status(500).json({ error: 'Failed to load traffic data.' });
   }
+});
+
+// GET /admin/api/sessions — list of visitor sessions with rolled-up
+// behavioral stats, newest activity first.
+router.get('/api/sessions', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 25));
+
+    const filter = {};
+    if (req.query.hasReplay === 'true') filter.replayEnabled = true;
+    if (req.query.identified === 'true') filter.submissionId = { $ne: null };
+    if (req.query.identified === 'false') filter.submissionId = null;
+
+    const [total, items] = await Promise.all([
+      Session.countDocuments(filter),
+      Session.find(filter)
+        .sort({ lastSeenAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .populate('submissionId', 'referenceCode name email')
+        .lean(),
+    ]);
+
+    res.json({
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      items,
+      llmEnabled: llmSummary.isEnabled(),
+    });
+  } catch (err) {
+    console.error('[admin/api/sessions] error:', err);
+    res.status(500).json({ error: 'Failed to load sessions.' });
+  }
+});
+
+// GET /admin/api/sessions/:sessionId — everything needed to render the
+// session detail view: the session doc, its page views, its behavioral
+// events, and metadata about available replay chunks (fetched separately,
+// on demand, since they can be large).
+router.get('/api/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const [session, pageViews, events, replayChunkMeta] = await Promise.all([
+      Session.findOne({ sessionId }).populate('submissionId', 'referenceCode name email').lean(),
+      PageView.find({ sessionId }).sort({ createdAt: 1 }).limit(500).lean(),
+      Event.find({ sessionId }).sort({ createdAt: 1 }).limit(2000).lean(),
+      ReplayChunk.find({ sessionId }).sort({ seq: 1 }).select('seq startedAt endedAt path').lean(),
+    ]);
+
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+    res.json({
+      session,
+      pageViews,
+      events,
+      replayChunks: replayChunkMeta,
+      llmEnabled: llmSummary.isEnabled(),
+    });
+  } catch (err) {
+    console.error('[admin/api/sessions/:sessionId] error:', err);
+    res.status(500).json({ error: 'Failed to load session.' });
+  }
+});
+
+// GET /admin/api/sessions/:sessionId/replay — concatenated raw rrweb event
+// stream for the player. Separate endpoint since this can be sizeable and
+// the session detail view shouldn't have to load it just to show stats.
+router.get('/api/sessions/:sessionId/replay', async (req, res) => {
+  try {
+    const chunks = await ReplayChunk.find({ sessionId: req.params.sessionId })
+      .sort({ seq: 1 })
+      .select('events')
+      .lean();
+    const events = chunks.flatMap((c) => (Array.isArray(c.events) ? c.events : []));
+    res.json({ events });
+  } catch (err) {
+    console.error('[admin/api/sessions/:sessionId/replay] error:', err);
+    res.status(500).json({ error: 'Failed to load replay.' });
+  }
+});
+
+// POST /admin/api/sessions/:sessionId/summarize — on-demand, optional LLM
+// behavioral summary. 404s cleanly if LLM_ENABLED is not set, rather than
+// silently no-op'ing, so the admin UI can explain why the button is disabled.
+router.post('/api/sessions/:sessionId/summarize', async (req, res) => {
+  try {
+    if (!llmSummary.isEnabled()) {
+      return res.status(404).json({ error: 'LLM summarization is disabled (set LLM_ENABLED=true).' });
+    }
+
+    const session = await Session.findOne({ sessionId: req.params.sessionId });
+    if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+    const [events, pageViews] = await Promise.all([
+      Event.find({ sessionId: session.sessionId }).lean(),
+      PageView.find({ sessionId: session.sessionId }).lean(),
+    ]);
+
+    const { text, model } = await llmSummary.summarizeSession(session, events, pageViews);
+
+    session.llmSummary = { text, generatedAt: new Date(), model };
+    await session.save();
+
+    res.json({ summary: session.llmSummary });
+  } catch (err) {
+    console.error('[admin/api/sessions/:sessionId/summarize] error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate summary.' });
+  }
+});
+
+// GET /admin/api/settings/llm — current state of the optional summarizer.
+router.get('/api/settings/llm', (req, res) => {
+  res.json({ ...llmSummary.getSettings(), defaultSystemPrompt: llmSummary.DEFAULT_SYSTEM_PROMPT });
+});
+
+// POST /admin/api/settings/llm — toggle on/off, switch provider, edit the
+// system prompt. Off by default on every server restart regardless of what
+// was set here — see comment in src/services/llmSummary.js.
+router.post('/api/settings/llm', express.json(), (req, res) => {
+  const { enabled, provider, systemPrompt } = req.body || {};
+  const updated = llmSummary.updateSettings({ enabled, provider, systemPrompt });
+  res.json(updated);
 });
 
 module.exports = router;

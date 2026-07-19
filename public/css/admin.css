@@ -548,3 +548,18 @@ tbody tr:hover { background: var(--flare-soft); }
   .chart-grid{ grid-template-columns: 1fr; }
   .stat-cards{ grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------- Sessions & Replay tab ---------- */
+#session-modal .modal-box { display: block; }
+#session-modal .modal-body { display: flex; flex-direction: column; gap: 16px; }
+#session-modal .stat-cards { grid-template-columns: repeat(5, 1fr); }
+#llm-system-prompt {
+  background: var(--panel, #14140f);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 10px;
+  resize: vertical;
+}
+#session-event-timeline > div { padding: 2px 0; border-bottom: 1px dashed rgba(237,232,214,0.05); }
+#llm-summarize-btn:disabled { opacity: 0.45; cursor: not-allowed; }

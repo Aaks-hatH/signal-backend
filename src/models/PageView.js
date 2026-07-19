@@ -4,12 +4,12 @@ const { Schema } = mongoose;
 
 /*
  * One document per page load / tracked interaction on the survey site.
- * Deliberately lightweight — no cookies, no persistent visitor id, just
- * an IP + user-agent snapshot per hit. That's enough to compute unique
- * visitors, traffic-over-time, and a submission conversion rate without
- * building anything resembling a tracking profile of individual people.
+ * Carries a first-party sessionId (see src/utils/sessionId.js) so hits can
+ * be grouped into a visit alongside behavioral events and replay — plus an
+ * IP + user-agent snapshot per hit for traffic/conversion analytics.
  */
 const PageViewSchema = new Schema({
+  sessionId: { type: String, maxlength: 100, index: true },
   path: { type: String, maxlength: 300 },
   referrer: { type: String, maxlength: 500 },
   event: { type: String, maxlength: 50, default: 'pageview', index: true },

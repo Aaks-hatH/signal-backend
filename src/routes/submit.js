@@ -3,8 +3,10 @@ const rateLimit = require('express-rate-limit');
 const { UAParser } = require('ua-parser-js');
 
 const Submission = require('../models/Submission');
+const Session = require('../models/Session');
 const { validateSubmission } = require('../utils/validateSubmission');
 const { generateReferenceCode } = require('../utils/referenceCode');
+const { getOrCreateSessionId } = require('../utils/sessionId');
 
 const router = express.Router();
 
@@ -68,6 +70,23 @@ router.post('/submit', submitLimiter, async (req, res) => {
     });
 
     await doc.save();
+
+    // Now that this visitor has identified themselves (name/email in the
+    // form), retroactively link their existing anonymous session — and
+    // everything hanging off it (page views, behavioral events, replay) —
+    // to this submission. This is the ONLY path by which a session ever
+    // gets an identity attached; nothing here infers identity from
+    // behavior, IP, or device fingerprinting.
+    try {
+      const { sessionId } = getOrCreateSessionId(req, res);
+      await Session.findOneAndUpdate(
+        { sessionId },
+        { $set: { submissionId: doc._id, email: clean.email || null } }
+      );
+    } catch (linkErr) {
+      console.error('[submit] session link error:', linkErr);
+      // Non-fatal — the submission itself already succeeded.
+    }
 
     return res.status(201).json({ referenceCode });
   } catch (err) {

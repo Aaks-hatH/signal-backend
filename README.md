@@ -176,12 +176,59 @@ through, and redeploy the server if you change it.
   feature priorities, would-use/would-pay funnel, price range breakdown, and
   contact/beta opt-in rates — computed live from MongoDB via aggregation
   queries, charted with Chart.js (CDN-loaded, admin-only page).
+- **Sessions & Replay tab:** every visitor session — page views, behavioral
+  events, and (where consented) full rrweb screen replay. See section 7 for
+  what's collected and why.
 - Sessions expire after 4 hours of idle time. `/admin/logout` ends the
   session immediately.
 
 ---
 
-## 7. Security notes
+## 7. Analytics & session replay — what's collected
+
+The frontend (`signal-main/index.html`) now does more than a page-view ping:
+
+| Collected always (no consent required) | Consent-gated (rrweb replay only) |
+|---|---|
+| Page path, referrer, browser/OS/device | Full visual DOM replay (mouse movement, clicks, scrolling) |
+| A random first-party session id (cookie `signal_sid`, 30-day expiry) — groups hits into a visit, is **not** a fingerprint | |
+| Clicks (incl. rage-click / dead-click detection), scroll depth thresholds, which form fields were focused/blurred and for how long | |
+
+**What's deliberately excluded, even from replay:** rrweb runs with
+`maskAllInputs: true`, so every `<input>`/`<textarea>` is rendered as `*`s in
+the recording — replay shows *behavior*, never what someone typed. Form field
+*names* (e.g. `email`) are logged for hesitation analytics, field *values*
+never are, outside of the actual form submission itself.
+
+**Identity resolution:** a session is only ever linked to a name/email when
+the visitor submits the form themselves (see `src/routes/submit.js`). Nothing
+in this system attempts to fingerprint, de-anonymize, or guess the identity
+of a visitor who hasn't told you who they are.
+
+**Consent:** a small dismissible notice bar appears on first visit (see the
+`initConsentNotice` block in `signal-main/index.html`). It never blocks use
+of the page. Accepting starts rrweb replay for that session; declining (or
+ignoring it) does not — page views and aggregate behavioral analytics still
+record either way, same as most product-analytics tools, but the screen
+recording specifically requires the explicit "OK." The `/api/replay` route
+also re-checks server-side that the session has consent on file before
+accepting any replay data, so this can't be bypassed by editing the frontend.
+
+**Optional AI summaries:** off by default (`LLM_ENABLED=false`). When turned
+on (env var or the dashboard toggle), a free/open-source model — local Ollama
+or Groq's free tier, not a paid API — can generate a short plain-language
+summary of one session's *behavior* (pages visited, scroll depth, rage
+clicks, funnel progress). The prompt explicitly forbids guessing who the
+visitor is; see `src/services/llmSummary.js`.
+
+**Data volume note:** the `Event` and `ReplayChunk` collections grow much
+faster than `Submission`/`PageView`. For a long-running deployment, consider
+adding a TTL index (e.g. 30–90 days) on `createdAt` in those two models if
+you don't need indefinite retention.
+
+---
+
+## 8. Security notes
 
 - Admin password is never stored in plaintext — it's read from
   `ADMIN_PASSWORD` and hashed with bcrypt in memory before every comparison.
@@ -203,7 +250,7 @@ through, and redeploy the server if you change it.
 
 ---
 
-## 8. Environment variables reference
+## 9. Environment variables reference
 
 | Variable         | Required | Description                                                        |
 |------------------|----------|----------------------------------------------------------------------|
@@ -213,3 +260,10 @@ through, and redeploy the server if you change it.
 | `ALLOWED_ORIGIN` | yes      | Your survey's deployed origin, for CORS on `/api/submit`             |
 | `PORT`           | no       | Defaults to 3000 locally; most hosts set this automatically          |
 | `NODE_ENV`       | no       | Set to `production` on your host so cookies are marked `secure`      |
+| `LLM_ENABLED`    | no       | `true` to turn on optional AI session summaries. Default `false`.    |
+| `LLM_PROVIDER`   | no       | `ollama` or `groq`. Default `ollama`.                                 |
+| `OLLAMA_URL`     | no       | Local Ollama server URL. Default `http://localhost:11434`.           |
+| `OLLAMA_MODEL`   | no       | Local model name. Default `llama3.1:8b`.                              |
+| `GROQ_API_KEY`   | no       | Free-tier Groq API key, only needed if `LLM_PROVIDER=groq`.          |
+| `GROQ_MODEL`     | no       | Groq model name. Default `llama-3.1-8b-instant`.                     |
+| `LLM_SYSTEM_PROMPT` | no    | Custom summarizer prompt. Leave blank for the built-in default.      |
