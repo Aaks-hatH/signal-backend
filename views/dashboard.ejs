@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Admin Dashboard · Signal Intake</title>
 <link rel="stylesheet" href="/public/css/admin.css" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb-player@1.0.0-alpha.4/dist/style.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/rrweb-player@1.0.0-alpha.4/dist/index.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -16,7 +14,6 @@
       <button class="tab-btn active" data-tab="raw">Raw Submissions</button>
       <button class="tab-btn" data-tab="analytics">Analytics</button>
       <button class="tab-btn" data-tab="traffic">Traffic &amp; IPs</button>
-      <button class="tab-btn" data-tab="sessions">Sessions &amp; Replay</button>
     </nav>
     <form method="POST" action="/admin/logout" class="logout-form">
       <button type="submit" class="logout-btn">Log out</button>
@@ -152,106 +149,7 @@
         </table>
       </div>
     </section>
-
-    <!-- ===== SESSIONS & REPLAY TAB ===== -->
-    <section id="tab-sessions" class="tab-panel">
-      <p class="tab-panel-heading">
-        Every visitor session: page views, behavioral events (rage/dead clicks, scroll depth,
-        form-field timing), and — for sessions where the visitor accepted the on-page notice —
-        full rrweb screen replay. Nothing here attempts to identify anonymous visitors; a session
-        only gets linked to a name/email once that visitor submits the form themselves.
-      </p>
-
-      <div class="chart-card" style="margin-bottom:20px;">
-        <h3>Optional behavioral summarizer (off by default)</h3>
-        <p style="font-size:13px; opacity:0.75; margin:4px 0 12px;">
-          Uses a free/open-source model (local Ollama or Groq's free tier) to turn one session's
-          raw behavioral data into a plain-English intent/engagement summary. It is explicitly
-          instructed to describe behavior only and never guess who the visitor is — see
-          <code>src/services/llmSummary.js</code>.
-        </p>
-        <div class="filters" style="align-items:center;">
-          <label style="display:flex; align-items:center; gap:6px;">
-            <input type="checkbox" id="llm-enabled-toggle" />
-            Enabled
-          </label>
-          <select id="llm-provider-select">
-            <option value="ollama">Ollama (local, free)</option>
-            <option value="groq">Groq API (free tier)</option>
-          </select>
-          <button id="llm-settings-save">Save</button>
-          <span id="llm-settings-status" style="font-size:12px; opacity:0.7;"></span>
-        </div>
-        <textarea id="llm-system-prompt" rows="4" style="width:100%; margin-top:10px; font:12px/1.4 monospace;" placeholder="Custom system prompt (optional — leave blank to use the sensible default)"></textarea>
-      </div>
-
-      <div class="filters">
-        <select id="s-hasReplay">
-          <option value="">All sessions</option>
-          <option value="true">Has replay</option>
-        </select>
-        <select id="s-identified">
-          <option value="">Identified or not</option>
-          <option value="true">Identified only</option>
-          <option value="false">Anonymous only</option>
-        </select>
-        <button id="s-apply">Apply</button>
-      </div>
-
-      <div class="table-wrap">
-        <table id="sessions-table">
-          <thead>
-            <tr>
-              <th>Last seen</th>
-              <th>First seen</th>
-              <th>Landing page</th>
-              <th>Page views</th>
-              <th>Rage clicks</th>
-              <th>Max scroll %</th>
-              <th>Replay</th>
-              <th>Identity</th>
-              <th>Device</th>
-            </tr>
-          </thead>
-          <tbody id="sessions-tbody">
-            <tr><td colspan="9" class="loading-row">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="pagination">
-        <button id="s-prev-page" class="secondary">← Prev</button>
-        <span id="s-page-info">Page 1</span>
-        <button id="s-next-page" class="secondary">Next →</button>
-      </div>
-    </section>
   </main>
-
-  <!-- ===== SESSION DETAIL MODAL ===== -->
-  <div id="session-modal" class="modal-overlay hidden">
-    <div class="modal-box" style="max-width:900px;">
-      <button id="session-modal-close" class="modal-close">&times;</button>
-      <h2>Session detail</h2>
-      <div id="session-modal-body" class="modal-body">
-        <div class="chart-card">
-          <h3>Replay</h3>
-          <div id="replay-player-target">
-            <p style="opacity:0.7; font-size:13px;">No replay recorded for this session (visitor didn't accept the notice, or hasn't generated any DOM events yet).</p>
-          </div>
-        </div>
-        <div class="chart-card">
-          <h3>Behavioral summary</h3>
-          <div id="session-stats"></div>
-          <button id="llm-summarize-btn" class="secondary" style="margin-top:10px;">Generate AI summary</button>
-          <div id="llm-summary-output" style="margin-top:10px; font-size:13px;"></div>
-        </div>
-        <div class="chart-card">
-          <h3>Event timeline</h3>
-          <div id="session-event-timeline" style="max-height:300px; overflow:auto; font:12px/1.6 monospace;"></div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ===== DETAIL MODAL ===== -->
   <div id="detail-modal" class="modal-overlay hidden">
